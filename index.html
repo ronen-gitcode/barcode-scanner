@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>סורק ברקודים — ספירת מלאי</title>
+<style>
+  :root { --bg:#0f172a; --card:#1e293b; --txt:#e2e8f0; --muted:#94a3b8;
+          --ok:#22c55e; --dup:#f59e0b; --err:#ef4444; --accent:#3b82f6; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body { margin:0; font-family: system-ui, "Segoe UI", Arial, sans-serif;
+         background:var(--bg); color:var(--txt); padding:12px; }
+  h1 { font-size:1.15rem; margin:.2rem 0 .6rem; text-align:center; }
+  .card { background:var(--card); border-radius:14px; padding:14px; margin-bottom:12px; }
+  label { font-size:.85rem; color:var(--muted); display:block; margin-bottom:4px; }
+  input { width:100%; padding:10px; border-radius:10px; border:1px solid #334155;
+          background:#0b1220; color:var(--txt); font-size:1rem; }
+  button { width:100%; padding:13px; border:0; border-radius:12px; font-size:1.05rem;
+           font-weight:600; color:#fff; background:var(--accent); margin-top:8px; }
+  button.secondary { background:#475569; }
+  button.danger { background:var(--err); }
+  button:disabled { opacity:.5; }
+  #reader { width:100%; border-radius:12px; overflow:hidden; }
+  .status { text-align:center; font-size:1.2rem; font-weight:700; padding:10px;
+            border-radius:12px; margin-top:8px; min-height:1.4em; }
+  .status.ok  { background:rgba(34,197,94,.18);  color:var(--ok);  }
+  .status.dup { background:rgba(245,158,11,.18); color:var(--dup); }
+  .status.err { background:rgba(239,68,68,.18);  color:var(--err); }
+  .stats { display:flex; gap:8px; }
+  .stat { flex:1; background:#0b1220; border-radius:10px; padding:10px; text-align:center; }
+  .stat b { display:block; font-size:1.6rem; }
+  .stat span { font-size:.75rem; color:var(--muted); }
+  ul#log { list-style:none; padding:0; margin:6px 0 0; max-height:180px; overflow:auto;
+           font-size:.9rem; }
+  ul#log li { padding:6px 8px; border-bottom:1px solid #334155; display:flex;
+              justify-content:space-between; }
+  .pill { font-size:.7rem; padding:2px 8px; border-radius:999px; }
+  .pill.ok{background:rgba(34,197,94,.2);color:var(--ok)} .pill.dup{background:rgba(245,158,11,.2);color:var(--dup)}
+  .pill.err{background:rgba(239,68,68,.2);color:var(--err)} .pill.q{background:rgba(148,163,184,.2);color:var(--muted)}
+  details { margin-top:8px; } summary { color:var(--muted); font-size:.85rem; }
+  .small { font-size:.78rem; color:var(--muted); line-height:1.5; }
+  a { color:var(--accent); }
+</style>
+</head>
+<body>
+  <h1>📦 סורק ברקודים — ספירת מלאי</h1>
+
+  <!-- שלב 1: מפתח גישה -->
+  <div class="card" id="tokenCard">
+    <label>מפתח גישה ל-GitHub (Fine-grained Token)</label>
+    <input id="token" type="password" placeholder="github_pat_..." autocomplete="off" />
+    <button id="saveToken">שמור מפתח במכשיר הזה</button>
+    <div class="small" id="tokenState"></div>
+    <details>
+      <summary>הגדרות מתקדמות (מאגר/תיקייה)</summary>
+      <label style="margin-top:8px">בעלים (owner)</label>
+      <input id="owner" value="ronen-gitcode" />
+      <label style="margin-top:8px">מאגר (repo)</label>
+      <input id="repo" value="barcode" />
+      <label style="margin-top:8px">תיקייה (path)</label>
+      <input id="path" value="scans" />
+      <label style="margin-top:8px">ענף (branch)</label>
+      <input id="branch" value="main" />
+    </details>
+  </div>
+
+  <!-- שלב 2: סריקה -->
+  <div class="card">
+    <div id="reader"></div>
+    <button id="startBtn">▶️ התחל סריקה</button>
+    <button id="stopBtn" class="secondary" style="display:none">⏹️ עצור</button>
+    <div class="status" id="status">מוכן.</div>
+  </div>
+
+  <!-- מונים + יומן -->
+  <div class="card">
+    <div class="stats">
+      <div class="stat"><b id="cntOk">0</b><span>נשלחו</span></div>
+      <div class="stat"><b id="cntDup">0</b><span>כפולים</span></div>
+      <div class="stat"><b id="cntQ">0</b><span>בתור</span></div>
+    </div>
+    <button id="retryBtn" class="secondary" style="display:none">🔄 נסה לשלוח שוב את התור</button>
+    <ul id="log"></ul>
+  </div>
+
+  <div class="card small">
+    <b>איך זה עובד:</b> כל ברקוד שנסרק נשמר כקובץ במאגר הפרטי שלך ב-GitHub.
+    במחשב מריצים <code>python update_excel.py</code> כדי לסמן "נספר" בעמודה G.
+    המפתח נשמר רק במכשיר הזה (בדפדפן) ולא נשלח לאף אחד חוץ מ-GitHub.
+  </div>
+
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script>
+(function () {
+  "use strict";
+  const $ = id => document.getElementById(id);
+  const LS = window.localStorage;
+
+  // ---- ניהול מפתח והגדרות ----
+  function cfg() {
+    return {
+      token:  LS.getItem("gh_token") || "",
+      owner:  $("owner").value.trim(),
+      repo:   $("repo").value.trim(),
+      path:   $("path").value.trim().replace(/\/+$/,""),
+      branch: $("branch").value.trim() || "main",
+    };
+  }
+  // טען מפתח שמור
+  if (LS.getItem("gh_token")) {
+    $("token").value = LS.getItem("gh_token");
+    $("tokenState").textContent = "✅ מפתח שמור במכשיר.";
+  }
+  ["owner","repo","path","branch"].forEach(k=>{
+    const v = LS.getItem("gh_"+k); if (v) $(k).value = v;
+    $(k).addEventListener("change", ()=>LS.setItem("gh_"+k, $(k).value.trim()));
+  });
+  $("saveToken").addEventListener("click", () => {
+    const t = $("token").value.trim();
+    if (!t) { $("tokenState").textContent = "⚠️ הדבק מפתח קודם."; return; }
+    LS.setItem("gh_token", t);
+    $("tokenState").textContent = "✅ נשמר. אפשר להתחיל לסרוק.";
+  });
+
+  // ---- מונים ----
+  let okN=0, dupN=0;
+  const sentThisSession = new Set();      // מניעת שליחה כפולה מיידית
+  function refreshCounts() {
+    $("cntOk").textContent = okN;
+    $("cntDup").textContent = dupN;
+    $("cntQ").textContent = queue.length;
+    $("retryBtn").style.display = queue.length ? "block" : "none";
+  }
+
+  // ---- תור עמיד לכשלי רשת ----
+  let queue = JSON.parse(LS.getItem("gh_queue") || "[]");
+  function saveQueue(){ LS.setItem("gh_queue", JSON.stringify(queue)); refreshCounts(); }
+
+  function setStatus(text, cls) {
+    const el = $("status"); el.textContent = text;
+    el.className = "status" + (cls ? " "+cls : "");
+  }
+  function addLog(code, cls, label) {
+    const li = document.createElement("li");
+    li.innerHTML = `<span>${code}</span><span class="pill ${cls}">${label}</span>`;
+    $("log").prepend(li);
+  }
+  function beep(ok) {
+    try {
+      const ctx = new (window.AudioContext||window.webkitAudioContext)();
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.connect(g); g.connect(ctx.destination);
+      o.frequency.value = ok ? 880 : 300; o.start();
+      g.gain.setValueAtTime(.2, ctx.currentTime);
+      g.gain.exponentialRampToValueAtTime(.001, ctx.currentTime + .15);
+      o.stop(ctx.currentTime + .15);
+    } catch(e){}
+    if (navigator.vibrate) navigator.vibrate(ok ? 60 : [40,40,40]);
+  }
+
+  // ---- שליחה ל-GitHub ----
+  function sanitize(code){ return code.replace(/[^A-Za-z0-9._-]/g, "_"); }
+
+  async function sendOne(item) {
+    const c = cfg();
+    if (!c.token) throw {soft:true, msg:"אין מפתח גישה"};
+    const fname = `${c.path}/${sanitize(item.barcode)}.json`;
+    const url = `https://api.github.com/repos/${c.owner}/${c.repo}/contents/${encodeURIComponent(fname).replace(/%2F/g,"/")}`;
+    const body = {
+      message: `scan ${item.barcode}`,
+      branch: c.branch,
+      content: btoa(unescape(encodeURIComponent(JSON.stringify(item))))
+    };
+    const res = await fetch(url, {
+      method: "PUT",
+      headers: {
+        "Authorization": "Bearer " + c.token,
+        "Accept": "application/vnd.github+json",
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(body)
+    });
+    if (res.status === 201) return "ok";              // נוצר חדש
+    if (res.status === 422) return "dup";             // הקובץ כבר קיים = כבר נסרק
+    const txt = await res.text();
+    if (res.status === 401 || res.status === 403)
+      throw {soft:true, msg:"מפתח לא תקין/חסר הרשאה (" + res.status + ")"};
+    if (res.status === 404)
+      throw {soft:true, msg:"מאגר/תיקייה לא נמצאו (404) — בדוק owner/repo"};
+    throw {soft:false, msg:"שגיאת רשת " + res.status + " " + txt.slice(0,80)};
+  }
+
+  async function flushQueue() {
+    if (!navigator.onLine) return;
+    let progressed = false;
+    while (queue.length) {
+      const item = queue[0];
+      try {
+        const r = await sendOne(item);
+        queue.shift(); saveQueue();
+        if (r === "ok")  { okN++;  addLog(item.barcode, "ok", "נשלח"); }
+        else             { dupN++; addLog(item.barcode, "dup", "כבר נסרק"); }
+        progressed = true;
+      } catch (e) {
+        if (e.soft) { setStatus("⚠️ " + e.msg, "err"); }
+        else { setStatus("⚠️ נשמר בתור, ינסה שוב: " + e.msg, "err"); }
+        break;   // עוצרים; התור נשאר ויישלח בהמשך
+      }
+    }
+    refreshCounts();
+    if (progressed && !queue.length) setStatus("✅ הכל נשלח.", "ok");
+  }
+
+  function enqueue(barcode) {
+    if (sentThisSession.has(barcode)) {           // נסרק זה עתה — מתעלמים
+      setStatus("↩️ כבר נסרק: " + barcode, "dup"); beep(false); return;
+    }
+    sentThisSession.add(barcode);
+    queue.push({ barcode, ts: new Date().toISOString() });
+    saveQueue();
+    setStatus("📤 נסרק: " + barcode, "ok");
+    beep(true);
+    flushQueue();
+  }
+
+  $("retryBtn").addEventListener("click", flushQueue);
+  window.addEventListener("online", flushQueue);
+
+  // ---- סורק המצלמה ----
+  const F = Html5QrcodeSupportedFormats;
+  const formats = [
+    F.CODE_128, F.CODE_39, F.CODE_93, F.CODABAR, F.ITF,
+    F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E, F.QR_CODE
+  ];
+  const html5 = new Html5Qrcode("reader", { formatsToSupport: formats, verbose:false });
+  let running = false;
+  let lastCode = null, lastTime = 0;
+
+  function onScan(decodedText) {
+    const code = decodedText.trim();
+    const now = Date.now();
+    if (code === lastCode && now - lastTime < 2500) return;  // דה-באונס
+    lastCode = code; lastTime = now;
+    enqueue(code);
+  }
+
+  async function start() {
+    if (!cfg().token) { setStatus("⚠️ שמור מפתח גישה קודם.", "err"); return; }
+    try {
+      await html5.start(
+        { facingMode: "environment" },
+        { fps: 10, qrbox: { width: 280, height: 160 }, aspectRatio: 1.4 },
+        onScan,
+        () => {}                      // התעלמות מ"לא נמצא" רגיל
+      );
+      running = true;
+      $("startBtn").style.display = "none";
+      $("stopBtn").style.display = "block";
+      setStatus("📷 מכוון את המצלמה לברקוד...", "");
+    } catch (e) {
+      setStatus("⚠️ לא ניתן לפתוח מצלמה: " + e, "err");
+    }
+  }
+  async function stop() {
+    if (running) { try { await html5.stop(); } catch(e){} running = false; }
+    $("startBtn").style.display = "block";
+    $("stopBtn").style.display = "none";
+    setStatus("⏹️ הסריקה נעצרה.", "");
+  }
+  $("startBtn").addEventListener("click", start);
+  $("stopBtn").addEventListener("click", stop);
+
+  refreshCounts();
+  if (queue.length) { setStatus("יש "+queue.length+" סריקות בתור. לחץ 'נסה לשלוח שוב'.", "dup"); }
+})();
+</script>
+</body>
+</html>
