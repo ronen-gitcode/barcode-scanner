@@ -163,7 +163,7 @@
   const formats=[F.CODE_128,F.CODE_39,F.CODE_93,F.CODABAR,F.ITF,F.EAN_13,F.EAN_8,F.UPC_A,F.UPC_E,F.QR_CODE];
   const h5=new Html5Qrcode("reader",{formatsToSupport:formats,
     experimentalFeatures:{useBarCodeDetectorIfSupported:true}, verbose:false});
-  let running=false,last=null,lastT=0;
+  let running=false,busy=false,last=null,lastT=0;
   function onScan(txt){ const c=txt.trim(),now=Date.now();
     if(c===last && now-lastT<2500) return; last=c; lastT=now; add(c); }
 
@@ -175,28 +175,37 @@
   function baseConstraints(extra){ return Object.assign(
     {width:{ideal:1920},height:{ideal:1080},advanced:[{focusMode:"continuous"}]}, extra); }
   async function startWith(src){ return h5.start(src,camConfig,onScan,()=>{}); }
+  async function startCore(){
+    try{ await startWith(baseConstraints({facingMode:"environment"})); }
+    catch(e1){ const cams=await Html5Qrcode.getCameras();
+      if(!cams||!cams.length) throw new Error("לא נמצאה מצלמה במכשיר");
+      const rear=cams.find(c=>/back|rear|environment|אחור/i.test(c.label||""))||cams[cams.length-1];
+      await startWith(baseConstraints({deviceId:{exact:rear.id}})); }
+  }
   async function start(){
+    if(busy || running) return; busy=true;
+    // אם יש פריסט פעיל עם אזור שמור — קבע אותו לפני האתחול כדי להימנע מאתחול כפול
+    if(activePresetId){ const ap=presets.find(x=>x.id===activePresetId); if(ap && ap.box!=null) boxScale=ap.box; }
     setStatus("פותח את הסורק... (אשר הרשאה אם תתבקש)","");
     try{
-      try{ await startWith(baseConstraints({facingMode:"environment"})); }
-      catch(e1){ const cams=await Html5Qrcode.getCameras();
-        if(!cams||!cams.length) throw new Error("לא נמצאה מצלמה במכשיר");
-        const rear=cams.find(c=>/back|rear|environment|אחור/i.test(c.label||""))||cams[cams.length-1];
-        await startWith(baseConstraints({deviceId:{exact:rear.id}})); }
+      await startCore();
       running=true; $("startBtn").style.display="none"; $("stopBtn").style.display="block";
-      setupCamControls();
       setStatus("📷 כוון לברקוד...","");
+      setupCamControls();
     }catch(e){
       const nm=(e&&e.name)?e.name+": ":""; let tip="";
       if(/NotAllowed|Permission/i.test(nm)) tip=" — צריך לאשר גישה למצלמה.";
       else if(/NotReadable|TrackStart/i.test(nm)) tip=" — המצלמה תפוסה ע\"י אפליקציה אחרת.";
       else if(location.protocol!=="https:") tip=" — צריך להיכנס דרך https.";
       setStatus("⚠️ "+nm+(e.message||e)+tip,"err");
-    }
+    } finally { busy=false; }
   }
-  async function stop(){ if(running){try{await h5.stop();}catch(e){}running=false;}
+  async function stop(){
+    if(busy || !running) return; busy=true;
+    try{ await h5.stop(); }catch(e){} running=false; busy=false;
     $("camControls").style.display="none"; torchOn=false; $("torchBtn").textContent="🔦 פנס";
-    $("startBtn").style.display="block"; $("stopBtn").style.display="none"; setStatus("⏹️ נעצר.",""); }
+    $("startBtn").style.display="block"; $("stopBtn").style.display="none"; setStatus("⏹️ נעצר.","");
+  }
   $("startBtn").addEventListener("click",start);
   $("stopBtn").addEventListener("click",stop);
 
@@ -228,7 +237,13 @@
     try{ await h5.applyVideoConstraints({advanced:[{focusMode:"manual",focusDistance:parseFloat(e.target.value)}]}); }catch(err){} });
   $("autoFocusBtn").addEventListener("click",async()=>{
     try{ await h5.applyVideoConstraints({advanced:[{focusMode:"continuous"}]}); }catch(e){} });
-  async function restartScan(){ if(!running)return; try{await h5.stop();}catch(e){} running=false; await start(); }
+  async function restartScan(){
+    if(busy || !running) return; busy=true;
+    try{ try{ await h5.stop(); }catch(e){} running=false;
+      await startCore(); running=true; setupCamControls(); }
+    catch(e){ setStatus("⚠️ בעיה באתחול המצלמה מחדש","err"); }
+    finally { busy=false; }
+  }
   let boxTimer=null;
   $("box").addEventListener("input",e=>{ boxScale=parseFloat(e.target.value); LS.setItem("sl_cam_box",boxScale);
     if(running){ clearTimeout(boxTimer); boxTimer=setTimeout(restartScan,350); } });
