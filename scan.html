@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>סורק ברקודים — מקומי</title>
+<style>
+  :root { --bg:#0f172a; --card:#1e293b; --txt:#e2e8f0; --muted:#94a3b8;
+          --ok:#22c55e; --dup:#f59e0b; --err:#ef4444; --accent:#3b82f6; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  body { margin:0; font-family:system-ui,"Segoe UI",Arial,sans-serif;
+         background:var(--bg); color:var(--txt); padding:10px; }
+  h1 { font-size:1.1rem; text-align:center; margin:.2rem 0 .5rem; }
+  .card { background:var(--card); border-radius:14px; padding:12px; margin-bottom:10px; }
+  label.cc { display:block; font-size:.75rem; color:var(--muted); margin:0 0 3px; }
+  input[type=range] { width:100%; }
+  #reader { width:100%; max-height:36vh; border-radius:12px; overflow:hidden; }
+  #reader video, #reader canvas { max-height:36vh !important; width:100% !important; object-fit:cover; }
+  button { width:100%; padding:12px; border:0; border-radius:12px; font-size:1.02rem;
+           font-weight:600; color:#fff; background:var(--accent); margin-top:8px; }
+  button.secondary { background:#475569; }
+  button.danger { background:rgba(239,68,68,.85); }
+  #camControls button { font-size:.95rem; background:#475569; }
+  .status { text-align:center; font-size:1.05rem; font-weight:700; padding:9px;
+            border-radius:12px; margin-top:8px; min-height:1.2em; }
+  .status.ok{background:rgba(34,197,94,.18);color:var(--ok)}
+  .status.dup{background:rgba(245,158,11,.18);color:var(--dup)}
+  .status.err{background:rgba(239,68,68,.18);color:var(--err)}
+  .listHead { font-size:.9rem; color:var(--muted); margin-bottom:6px; display:flex; justify-content:space-between; }
+  .scanlist { max-height:32vh; overflow:auto; }
+  .scanlist .row { display:flex; justify-content:space-between; align-items:center;
+                   padding:8px 6px; border-bottom:1px solid #334155; font-size:1.05rem; }
+  .scanlist .row:first-child { color:var(--ok); font-weight:700; }
+  .scanlist .del { background:transparent; color:var(--err); border:0; font-size:1.15rem; padding:2px 10px; width:auto; margin:0; }
+  .scanlist .empty { color:var(--muted); font-size:.85rem; padding:8px; text-align:center; }
+  .rowBtns { display:flex; gap:8px; }
+  .rowBtns button { flex:1; }
+  .hint { font-size:.74rem; color:var(--muted); text-align:center; margin-top:6px; line-height:1.5; }
+  ul.presets { list-style:none; padding:0; margin:8px 0 0; }
+  ul.presets li { display:flex; align-items:center; gap:8px; padding:8px 10px; border-radius:10px;
+                  background:#0b1220; margin-bottom:6px; flex-wrap:wrap; }
+  ul.presets li.active { outline:2px solid var(--accent); }
+  ul.presets .pname { font-weight:600; }
+  ul.presets .pmeta { font-size:.72rem; color:var(--muted); }
+  ul.presets .pbtns { display:flex; gap:6px; margin-inline-start:auto; }
+  ul.presets .pbtns button { width:auto; padding:6px 10px; margin:0; font-size:.8rem;
+                             background:#334155; color:#fff; border:0; border-radius:8px; }
+  ul.presets .pbtns button.on { background:var(--accent); }
+</style>
+</head>
+<body>
+  <h1>📦 סורק ברקודים (מקומי)</h1>
+
+  <div class="card">
+    <div id="reader"></div>
+    <button id="startBtn">▶️ התחל סריקה</button>
+    <button id="stopBtn" class="secondary" style="display:none">⏹️ עצור</button>
+    <button id="fileBtn" class="secondary">🖼️ סרוק מצילום / גלריה</button>
+    <input id="fileInput" type="file" accept="image/*" capture="environment" style="display:none" />
+    <div id="camControls" style="display:none;">
+      <div style="margin-top:8px;">
+        <label class="cc">גודל אזור הסריקה — הקטן כדי לכוון לברקוד בודד מתוך כמה צמודים</label>
+        <input id="box" type="range" min="0.3" max="1" step="0.05" />
+      </div>
+      <button id="torchBtn" style="display:none">🔦 פנס</button>
+      <div id="zoomWrap" style="display:none;margin-top:8px;">
+        <label class="cc">זום (לקרב ברקודים קטנים)</label>
+        <input id="zoom" type="range" min="1" max="5" step="0.1" />
+      </div>
+      <div id="focusWrap" style="display:none;margin-top:8px;">
+        <label class="cc">פוקוס ידני — השאר את הנייד יציב וכוונן עד שהברקוד חד</label>
+        <input id="focus" type="range" />
+        <button id="autoFocusBtn">↩︎ חזרה לפוקוס אוטומטי</button>
+      </div>
+    </div>
+    <div class="status" id="status">מוכן.</div>
+  </div>
+
+  <div class="card">
+    <div style="font-size:.85rem;color:var(--muted);margin-bottom:8px">פריסטים לברקודים קשים (זום + פוקוס + אזור נשמרים):</div>
+    <button id="savePresetBtn" class="secondary">➕ שמור את ההגדרה הנוכחית כפריסט</button>
+    <div id="presetsEmpty" class="hint" style="text-align:right">אין פריסטים עדיין. הפעל סריקה, כוונן זום/פוקוס/אזור עד שהברקוד הקשה נקרא, ואז לחץ "שמור".</div>
+    <ul id="presetList" class="presets"></ul>
+  </div>
+
+  <div class="card">
+    <div class="listHead"><span>ברקודים שנסרקו</span><span id="listCount">(0)</span></div>
+    <div class="scanlist" id="scanList"></div>
+    <div class="rowBtns">
+      <button id="copyBtn" class="secondary">📋 העתק הכל</button>
+      <button id="exportBtn" class="secondary">⬇️ ייצוא קובץ</button>
+    </div>
+    <button id="clearBtn" class="danger">🗑️ נקה את כל הרשימה</button>
+  </div>
+
+  <div class="card hint">
+    זה דף סריקה עצמאי — הכל נשמר <b>רק בטלפון הזה</b> (לא נשלח לשום מקום). אפשר לייצא את הרשימה לקובץ או להעתיק אותה.
+  </div>
+
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script>
+(function(){
+  "use strict";
+  const $=id=>document.getElementById(id);
+  const LS=window.localStorage;
+
+  // --- רשימת ברקודים מקומית ---
+  let codes=JSON.parse(LS.getItem("sl_codes")||"[]");
+  const sent=new Set(codes);
+  function saveCodes(){ LS.setItem("sl_codes", JSON.stringify(codes)); }
+
+  function setStatus(t,c){ const e=$("status"); e.textContent=t; e.className="status"+(c?" "+c:""); }
+  function beep(ok){ try{ const a=new (window.AudioContext||window.webkitAudioContext)(),o=a.createOscillator(),g=a.createGain();
+    o.connect(g);g.connect(a.destination);o.frequency.value=ok?880:300;o.start();
+    g.gain.setValueAtTime(.2,a.currentTime);g.gain.exponentialRampToValueAtTime(.001,a.currentTime+.15);o.stop(a.currentTime+.15);}catch(e){}
+    if(navigator.vibrate)navigator.vibrate(ok?60:[40,40,40]); }
+
+  function renderList(){
+    $("listCount").textContent="("+codes.length+")";
+    const box=$("scanList");
+    if(!codes.length){ box.innerHTML='<div class="empty">עדיין לא נסרק כלום.</div>'; return; }
+    box.innerHTML="";
+    for(let i=codes.length-1;i>=0;i--){
+      const code=codes[i];
+      const row=document.createElement("div"); row.className="row";
+      const s=document.createElement("span"); s.textContent=code;
+      const del=document.createElement("button"); del.className="del"; del.textContent="✕";
+      del.onclick=()=>removeCode(code);
+      row.appendChild(s); row.appendChild(del); box.appendChild(row);
+    }
+  }
+  function removeCode(code){ const i=codes.indexOf(code); if(i>=0)codes.splice(i,1);
+    sent.delete(code); saveCodes(); renderList(); setStatus("🗑️ הוסר: "+code,"dup"); }
+
+  function add(code){
+    if(sent.has(code)){ setStatus("↩️ כבר נסרק: "+code,"dup"); beep(false); return; }
+    sent.add(code); codes.push(code); saveCodes(); renderList();
+    setStatus("📤 נסרק: "+code,"ok"); beep(true);
+  }
+
+  $("copyBtn").addEventListener("click",async()=>{
+    if(!codes.length){ setStatus("אין מה להעתיק","dup"); return; }
+    const txt=codes.join("\n");
+    try{ await navigator.clipboard.writeText(txt); setStatus("📋 הועתקו "+codes.length+" ברקודים","ok"); }
+    catch(e){ setStatus("⚠️ העתקה נכשלה — נסה ייצוא לקובץ","err"); }
+  });
+  $("exportBtn").addEventListener("click",()=>{
+    if(!codes.length){ setStatus("אין מה לייצא","dup"); return; }
+    const blob=new Blob([codes.join("\n")],{type:"text/plain;charset=utf-8"});
+    const url=URL.createObjectURL(blob), a=document.createElement("a");
+    a.href=url; a.download="barcodes.txt"; document.body.appendChild(a); a.click();
+    document.body.removeChild(a); URL.revokeObjectURL(url);
+    setStatus("⬇️ יוצא קובץ עם "+codes.length+" ברקודים","ok");
+  });
+  $("clearBtn").addEventListener("click",()=>{
+    if(!codes.length) return;
+    if(!confirm("למחוק את כל "+codes.length+" הברקודים? פעולה בלתי הפיכה.")) return;
+    codes=[]; sent.clear(); saveCodes(); renderList(); setStatus("🗑️ הרשימה נמחקה","dup");
+  });
+
+  // --- מצלמה ---
+  const F=Html5QrcodeSupportedFormats;
+  const formats=[F.CODE_128,F.CODE_39,F.CODE_93,F.CODABAR,F.ITF,F.EAN_13,F.EAN_8,F.UPC_A,F.UPC_E,F.QR_CODE];
+  const h5=new Html5Qrcode("reader",{formatsToSupport:formats,
+    experimentalFeatures:{useBarCodeDetectorIfSupported:true}, verbose:false});
+  let running=false,last=null,lastT=0;
+  function onScan(txt){ const c=txt.trim(),now=Date.now();
+    if(c===last && now-lastT<2500) return; last=c; lastT=now; add(c); }
+
+  // אזור סריקה מתכוונן — קטן יותר = מכוון לברקוד בודד מתוך כמה צמודים
+  let boxScale=parseFloat(LS.getItem("sl_cam_box")||"0.75"); if(!(boxScale>0)) boxScale=0.75;
+  function scanBox(vw,vh){ const base=Math.min((vw||320)-24,380);
+    const w=Math.max(110,Math.round(base*boxScale)); return {width:w,height:Math.max(70,Math.round(w/1.9))}; }
+  const camConfig={fps:10,qrbox:scanBox,aspectRatio:1.3};
+  function baseConstraints(extra){ return Object.assign(
+    {width:{ideal:1920},height:{ideal:1080},advanced:[{focusMode:"continuous"}]}, extra); }
+  async function startWith(src){ return h5.start(src,camConfig,onScan,()=>{}); }
+  async function start(){
+    setStatus("פותח את הסורק... (אשר הרשאה אם תתבקש)","");
+    try{
+      try{ await startWith(baseConstraints({facingMode:"environment"})); }
+      catch(e1){ const cams=await Html5Qrcode.getCameras();
+        if(!cams||!cams.length) throw new Error("לא נמצאה מצלמה במכשיר");
+        const rear=cams.find(c=>/back|rear|environment|אחור/i.test(c.label||""))||cams[cams.length-1];
+        await startWith(baseConstraints({deviceId:{exact:rear.id}})); }
+      running=true; $("startBtn").style.display="none"; $("stopBtn").style.display="block";
+      setupCamControls();
+      setStatus("📷 כוון לברקוד...","");
+    }catch(e){
+      const nm=(e&&e.name)?e.name+": ":""; let tip="";
+      if(/NotAllowed|Permission/i.test(nm)) tip=" — צריך לאשר גישה למצלמה.";
+      else if(/NotReadable|TrackStart/i.test(nm)) tip=" — המצלמה תפוסה ע\"י אפליקציה אחרת.";
+      else if(location.protocol!=="https:") tip=" — צריך להיכנס דרך https.";
+      setStatus("⚠️ "+nm+(e.message||e)+tip,"err");
+    }
+  }
+  async function stop(){ if(running){try{await h5.stop();}catch(e){}running=false;}
+    $("camControls").style.display="none"; torchOn=false; $("torchBtn").textContent="🔦 פנס";
+    $("startBtn").style.display="block"; $("stopBtn").style.display="none"; setStatus("⏹️ נעצר.",""); }
+  $("startBtn").addEventListener("click",start);
+  $("stopBtn").addEventListener("click",stop);
+
+  // --- בקרות מצלמה: פנס / זום / פוקוס ידני / אזור סריקה ---
+  let torchOn=false, camCaps={};
+  function setupCamControls(){
+    let caps={}; try{ caps=h5.getRunningTrackCapabilities()||{}; }catch(e){}
+    camCaps=caps; $("box").value=boxScale;
+    $("torchBtn").style.display = caps.torch ? "block" : "none";
+    if(caps.zoom && typeof caps.zoom==="object"){ const z=caps.zoom, zi=$("zoom");
+      zi.min=z.min; zi.max=z.max; zi.step=z.step||0.1;
+      let cur=z.min; try{ cur=h5.getRunningTrackSettings().zoom||z.min; }catch(e){} zi.value=cur;
+      $("zoomWrap").style.display="block"; } else { $("zoomWrap").style.display="none"; }
+    const modes=caps.focusMode||[]; const man=Array.isArray(modes)?modes.includes("manual"):false;
+    if(man && caps.focusDistance && typeof caps.focusDistance==="object"){ const fd=caps.focusDistance, fi=$("focus");
+      fi.min=fd.min; fi.max=fd.max; fi.step=fd.step||(fd.max-fd.min)/100||0.01;
+      let cur=fd.min; try{ cur=h5.getRunningTrackSettings().focusDistance||fd.min; }catch(e){} fi.value=cur;
+      $("focusWrap").style.display="block"; } else { $("focusWrap").style.display="none"; }
+    $("camControls").style.display="block";
+    if(activePresetId){ const p=presets.find(x=>x.id===activePresetId); if(p) applyPreset(p); }
+  }
+  $("torchBtn").addEventListener("click",async()=>{ torchOn=!torchOn;
+    try{ await h5.applyVideoConstraints({advanced:[{torch:torchOn}]});
+      $("torchBtn").textContent=torchOn?"🔦 כבה פנס":"🔦 פנס"; }
+    catch(e){ torchOn=false; setStatus("⚠️ הפנס לא נתמך במכשיר הזה","err"); } });
+  $("zoom").addEventListener("input",async e=>{
+    try{ await h5.applyVideoConstraints({advanced:[{zoom:parseFloat(e.target.value)}]}); }catch(err){} });
+  $("focus").addEventListener("input",async e=>{
+    try{ await h5.applyVideoConstraints({advanced:[{focusMode:"manual",focusDistance:parseFloat(e.target.value)}]}); }catch(err){} });
+  $("autoFocusBtn").addEventListener("click",async()=>{
+    try{ await h5.applyVideoConstraints({advanced:[{focusMode:"continuous"}]}); }catch(e){} });
+  async function restartScan(){ if(!running)return; try{await h5.stop();}catch(e){} running=false; await start(); }
+  let boxTimer=null;
+  $("box").addEventListener("input",e=>{ boxScale=parseFloat(e.target.value); LS.setItem("sl_cam_box",boxScale);
+    if(running){ clearTimeout(boxTimer); boxTimer=setTimeout(restartScan,350); } });
+
+  // --- פריסטים של זום/פוקוס/פנס/אזור ---
+  let presets=JSON.parse(LS.getItem("sl_cam_presets")||"[]");
+  let activePresetId=LS.getItem("sl_cam_active")||null;
+  function savePresets(){ LS.setItem("sl_cam_presets",JSON.stringify(presets)); }
+  function saveActive(){ if(activePresetId)LS.setItem("sl_cam_active",activePresetId); else LS.removeItem("sl_cam_active"); }
+  async function applyPreset(p){
+    if(p.box!=null && p.box!==boxScale){ boxScale=p.box; LS.setItem("sl_cam_box",boxScale); $("box").value=boxScale;
+      if(running){ await restartScan(); return; } }
+    if(p.zoom!=null){ try{ await h5.applyVideoConstraints({advanced:[{zoom:p.zoom}]}); }catch(e){} $("zoom").value=p.zoom; }
+    if(p.focus!=null){ try{ await h5.applyVideoConstraints({advanced:[{focusMode:"manual",focusDistance:p.focus}]}); }catch(e){} $("focus").value=p.focus; }
+    if(p.torch!=null){ try{ await h5.applyVideoConstraints({advanced:[{torch:p.torch}]});
+      torchOn=p.torch; $("torchBtn").textContent=torchOn?"🔦 כבה פנס":"🔦 פנס"; }catch(e){} }
+  }
+  async function resetCam(){ try{ await h5.applyVideoConstraints({advanced:[{focusMode:"continuous"}]}); }catch(e){}
+    if(camCaps.zoom && typeof camCaps.zoom==="object"){
+      try{ await h5.applyVideoConstraints({advanced:[{zoom:camCaps.zoom.min}]}); }catch(e){} $("zoom").value=camCaps.zoom.min; } }
+  function renderPresets(){ const ul=$("presetList"); ul.innerHTML="";
+    $("presetsEmpty").style.display=presets.length?"none":"block";
+    presets.forEach(p=>{ const li=document.createElement("li"); if(p.id===activePresetId)li.className="active";
+      const meta=[]; if(p.zoom!=null)meta.push("זום "+(+p.zoom).toFixed(1)); if(p.focus!=null)meta.push("פוקוס");
+      if(p.torch)meta.push("פנס"); if(p.box!=null)meta.push("אזור "+Math.round(p.box*100)+"%");
+      const info=document.createElement("span");
+      info.innerHTML='<span class="pname">'+p.name+'</span>'+(meta.length?' <span class="pmeta">'+meta.join(" · ")+'</span>':'');
+      const btns=document.createElement("span"); btns.className="pbtns"; const on=p.id===activePresetId;
+      const t=document.createElement("button"); t.textContent=on?"בטל":"החל"; if(on)t.className="on"; t.onclick=()=>togglePreset(p.id);
+      const ed=document.createElement("button"); ed.textContent="✏️"; ed.onclick=()=>editPreset(p.id);
+      const del=document.createElement("button"); del.textContent="🗑️"; del.onclick=()=>deletePreset(p.id);
+      btns.append(t,ed,del); li.append(info,btns); ul.append(li); }); }
+  async function togglePreset(id){
+    if(activePresetId===id){ activePresetId=null; saveActive(); renderPresets(); if(running)await resetCam();
+      setStatus("↩️ פריסט כובה — פוקוס אוטומטי",""); return; }
+    activePresetId=id; saveActive(); renderPresets(); const p=presets.find(x=>x.id===id); if(!p)return;
+    if(running){ await applyPreset(p); setStatus("🎯 פריסט '"+p.name+"' פעיל","ok"); }
+    else setStatus("הפעל סריקה כדי להחיל את הפריסט '"+p.name+"'","dup"); }
+  $("savePresetBtn").addEventListener("click",()=>{
+    if(!running){ setStatus("⚠️ הפעל סריקה וכוונן זום/פוקוס/אזור לפני שמירה","err"); return; }
+    const name=(prompt("שם לפריסט (למשל: מדבקה עם 3 ברקודים):")||"").trim(); if(!name) return;
+    const p={id:"p"+Date.now(),name,box:boxScale}; let s={}; try{ s=h5.getRunningTrackSettings()||{}; }catch(e){}
+    if($("zoomWrap").style.display!=="none") p.zoom=parseFloat($("zoom").value); else if(s.zoom!=null) p.zoom=s.zoom;
+    if($("focusWrap").style.display!=="none") p.focus=parseFloat($("focus").value); else if(s.focusDistance!=null) p.focus=s.focusDistance;
+    if(torchOn) p.torch=true;
+    presets.push(p); savePresets(); renderPresets(); setStatus("💾 נשמר פריסט '"+name+"'","ok"); });
+  function editPreset(id){ const p=presets.find(x=>x.id===id); if(!p)return;
+    const name=(prompt("שם חדש לפריסט:",p.name)||"").trim(); if(!name)return;
+    p.name=name; savePresets(); renderPresets(); }
+  function deletePreset(id){ const p=presets.find(x=>x.id===id);
+    if(!confirm("למחוק את הפריסט '"+(p?p.name:"")+"'?")) return;
+    presets=presets.filter(x=>x.id!==id); if(activePresetId===id){ activePresetId=null; saveActive(); }
+    savePresets(); renderPresets(); }
+
+  // --- סריקה מתמונה ---
+  $("fileBtn").addEventListener("click",()=>$("fileInput").click());
+  $("fileInput").addEventListener("change",async e=>{ const file=e.target.files&&e.target.files[0]; e.target.value="";
+    if(!file) return; if(running) await stop(); setStatus("🔍 מפענח תמונה...","");
+    try{ const decoded=await h5.scanFile(file,false); onScan(decoded); }
+    catch(err){ setStatus("⚠️ לא זוהה ברקוד בתמונה. צלם חד יותר, מקרוב ובתאורה טובה.","err"); beep(false); } });
+
+  renderList(); renderPresets();
+})();
+</script>
+</body>
+</html>
