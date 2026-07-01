@@ -241,7 +241,18 @@
     F.CODE_128, F.CODE_39, F.CODE_93, F.CODABAR, F.ITF,
     F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E, F.QR_CODE
   ];
-  const html5 = new Html5Qrcode("reader", { formatsToSupport: formats, verbose:false });
+  const html5 = new Html5Qrcode("reader", {
+    formatsToSupport: formats,
+    // השתמש במנוע הזיהוי המובנה של הדפדפן/אנדרואיד אם קיים — טוב יותר ל-Code-128
+    experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+    verbose: false
+  });
+
+  // אזור סריקה רחב ונמוך, מותאם לברקודים לינאריים (1D) כמו Code-128
+  function scanBox(vw, vh) {
+    const w = Math.max(200, Math.min((vw || 320) - 30, 400));
+    return { width: w, height: Math.round(w / 2.6) };
+  }
   let running = false;
   let lastCode = null, lastTime = 0;
   let torchOn = false;
@@ -308,7 +319,7 @@
           width:  { ideal: 1920 },     // רזולוציה גבוהה — יותר פיקסלים לברקוד קטן
           height: { ideal: 1080 },
           advanced: [{ focusMode: "continuous" }] },  // פוקוס רציף
-        { fps: 10, qrbox: { width: 280, height: 160 }, aspectRatio: 1.4 },
+        { fps: 10, qrbox: scanBox, aspectRatio: 1.4 },
         onScan,
         () => {}                      // התעלמות מ"לא נמצא" רגיל
       );
