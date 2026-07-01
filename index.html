@@ -69,6 +69,13 @@
     <div id="reader"></div>
     <button id="startBtn">▶️ התחל סריקה</button>
     <button id="stopBtn" class="secondary" style="display:none">⏹️ עצור</button>
+    <div id="camControls" style="display:none; margin-top:8px;">
+      <button id="torchBtn" class="secondary" style="display:none">🔦 פנס</button>
+      <div id="zoomWrap" style="display:none; margin-top:8px;">
+        <label>זום (לקרב ברקודים קטנים)</label>
+        <input id="zoom" type="range" min="1" max="5" step="0.1" value="1" />
+      </div>
+    </div>
     <div class="status" id="status">מוכן.</div>
   </div>
 
@@ -235,6 +242,53 @@
   const html5 = new Html5Qrcode("reader", { formatsToSupport: formats, verbose:false });
   let running = false;
   let lastCode = null, lastTime = 0;
+  let torchOn = false;
+
+  // ---- בקרות מצלמה (פנס + זום) לברקודים קטנים/מטושטשים ----
+  function setupCamControls() {
+    let caps = {};
+    try { caps = html5.getRunningTrackCapabilities() || {}; } catch (e) {}
+    let anything = false;
+
+    // פנס (Torch) — נתמך רק במצלמה האחורית ברוב המכשירים
+    if (caps.torch) {
+      $("torchBtn").style.display = "block";
+      anything = true;
+    } else {
+      $("torchBtn").style.display = "none";
+    }
+
+    // זום אופטי/דיגיטלי
+    if (caps.zoom && typeof caps.zoom === "object") {
+      const z = caps.zoom, zin = $("zoom");
+      zin.min = z.min; zin.max = z.max; zin.step = z.step || 0.1;
+      let cur = z.min;
+      try { cur = html5.getRunningTrackSettings().zoom || z.min; } catch (e) {}
+      zin.value = cur;
+      $("zoomWrap").style.display = "block";
+      anything = true;
+    } else {
+      $("zoomWrap").style.display = "none";
+    }
+
+    $("camControls").style.display = anything ? "block" : "none";
+  }
+
+  $("torchBtn").addEventListener("click", async () => {
+    torchOn = !torchOn;
+    try {
+      await html5.applyVideoConstraints({ advanced: [{ torch: torchOn }] });
+      $("torchBtn").textContent = torchOn ? "🔦 כבה פנס" : "🔦 פנס";
+    } catch (e) {
+      torchOn = false;
+      setStatus("⚠️ הפנס לא נתמך במכשיר הזה", "err");
+    }
+  });
+
+  $("zoom").addEventListener("input", async (e) => {
+    try { await html5.applyVideoConstraints({ advanced: [{ zoom: parseFloat(e.target.value) }] }); }
+    catch (err) {}
+  });
 
   function onScan(decodedText) {
     const code = decodedText.trim();
@@ -248,7 +302,10 @@
     if (!cfg().token) { setStatus("⚠️ שמור מפתח גישה קודם.", "err"); return; }
     try {
       await html5.start(
-        { facingMode: "environment" },
+        { facingMode: "environment",
+          width:  { ideal: 1920 },     // רזולוציה גבוהה — יותר פיקסלים לברקוד קטן
+          height: { ideal: 1080 },
+          advanced: [{ focusMode: "continuous" }] },  // פוקוס רציף
         { fps: 10, qrbox: { width: 280, height: 160 }, aspectRatio: 1.4 },
         onScan,
         () => {}                      // התעלמות מ"לא נמצא" רגיל
@@ -256,6 +313,7 @@
       running = true;
       $("startBtn").style.display = "none";
       $("stopBtn").style.display = "block";
+      setupCamControls();             // הצג פנס/זום אם המכשיר תומך
       setStatus("📷 מכוון את המצלמה לברקוד...", "");
     } catch (e) {
       setStatus("⚠️ לא ניתן לפתוח מצלמה: " + e, "err");
@@ -265,6 +323,9 @@
     if (running) { try { await html5.stop(); } catch(e){} running = false; }
     $("startBtn").style.display = "block";
     $("stopBtn").style.display = "none";
+    $("camControls").style.display = "none";
+    torchOn = false;
+    $("torchBtn").textContent = "🔦 פנס";
     setStatus("⏹️ הסריקה נעצרה.", "");
   }
   $("startBtn").addEventListener("click", start);
