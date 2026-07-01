@@ -49,7 +49,7 @@
 </style>
 </head>
 <body>
-  <h1>📦 סורק ברקודים (מקומי) <span style="font-size:.7rem;color:var(--muted)">v6</span></h1>
+  <h1>📦 סורק ברקודים (מקומי) <span style="font-size:.7rem;color:var(--muted)">v7</span></h1>
 
   <div class="card">
     <div id="reader"></div>
@@ -175,12 +175,11 @@
     return {width:w,height:h}; }
   const camConfig={fps:10,qrbox:scanBox};
   async function startWith(src){ return h5.start(src,camConfig,onScan,()=>{}); }
-  // רזולוציה גבוהה + פוקוס רציף — מוחלים רק אחרי שהמצלמה פועלת (best-effort, לא יכשילו פתיחה)
-  async function enhanceCam(){
-    try{ await h5.applyVideoConstraints({width:{ideal:1920},height:{ideal:1080},advanced:[{focusMode:"continuous"}]}); }catch(e){}
-  }
+  // פוקוס רציף — מוחל ברקע אחרי הפתיחה, בלי לעכב את הווידאו (best-effort)
+  function enhanceCam(){ try{ h5.applyVideoConstraints({advanced:[{focusMode:"continuous"}]}).catch(()=>{}); }catch(e){} }
   async function startCore(){
-    try{ await startWith({facingMode:"environment"}); return; }
+    // רזולוציה גבוהה כ-ideal (best-effort) כבר בפתיחה — מהיר, בלי אתחול-מחדש של הווידאו
+    try{ await startWith({facingMode:"environment",width:{ideal:1920},height:{ideal:1080}}); return; }
     catch(e1){ try{ await h5.stop(); }catch(_){} }   // אפס את מצב הספרייה לפני ניסיון גיבוי
     const cams=await Html5Qrcode.getCameras();
     if(!cams||!cams.length) throw new Error("לא נמצאה מצלמה במכשיר");
@@ -197,8 +196,8 @@
       await startCore();
       running=true; $("startBtn").style.display="none"; $("stopBtn").style.display="block";
       setStatus("📷 כוון לברקוד...","");
-      await enhanceCam();
       setupCamControls();
+      enhanceCam();
     }catch(e){
       const nm=(e&&e.name)?e.name+": ":""; const msg=(e&&e.message)?e.message:(""+e); let tip="";
       if(/transition/i.test(msg)){ try{ await h5.stop(); }catch(_){}
@@ -251,7 +250,7 @@
   async function restartScan(){
     if(busy || !running) return; busy=true;
     try{ try{ await h5.stop(); }catch(e){} running=false;
-      await startCore(); running=true; await enhanceCam(); setupCamControls(); }
+      await startCore(); running=true; setupCamControls(); enhanceCam(); }
     catch(e){ setStatus("⚠️ בעיה באתחול המצלמה מחדש","err"); }
     finally { busy=false; }
   }
