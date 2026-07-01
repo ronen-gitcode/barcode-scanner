@@ -81,7 +81,11 @@
     <button id="fileBtn" class="secondary">🖼️ סרוק מצילום / גלריה</button>
     <input id="fileInput" type="file" accept="image/*" capture="environment" style="display:none" />
     <div id="camControls" style="display:none; margin-top:8px;">
-      <button id="torchBtn" class="secondary" style="display:none">🔦 פנס</button>
+      <div id="boxWrap" style="margin-top:2px;">
+        <label>גודל אזור הסריקה — הקטן כדי לכוון לברקוד בודד מתוך כמה צמודים</label>
+        <input id="box" type="range" min="0.3" max="1" step="0.05" />
+      </div>
+      <button id="torchBtn" class="secondary" style="display:none; margin-top:8px">🔦 פנס</button>
       <div id="zoomWrap" style="display:none; margin-top:8px;">
         <label>זום (לקרב ברקודים קטנים)</label>
         <input id="zoom" type="range" min="1" max="5" step="0.1" value="1" />
@@ -272,10 +276,13 @@
     verbose: false
   });
 
-  // אזור סריקה רחב ונמוך, מותאם לברקודים לינאריים (1D) כמו Code-128
+  // אזור סריקה מתכוונן — קטן יותר = מכוון לברקוד בודד מתוך כמה צמודים
+  let boxScale = parseFloat(LS.getItem("cam_box") || "0.75");
+  if (!(boxScale > 0)) boxScale = 0.75;
   function scanBox(vw, vh) {
-    const w = Math.max(200, Math.min((vw || 320) - 30, 400));
-    return { width: w, height: Math.round(w / 2.6) };
+    const base = Math.min((vw || 320) - 30, 400);
+    const w = Math.max(110, Math.round(base * boxScale));
+    return { width: w, height: Math.max(70, Math.round(w / 2.6)) };
   }
   let running = false;
   let lastCode = null, lastTime = 0;
@@ -287,7 +294,8 @@
     let caps = {};
     try { caps = html5.getRunningTrackCapabilities() || {}; } catch (e) {}
     camCaps = caps;
-    let anything = false;
+    let anything = true;              // אזור הסריקה זמין תמיד כשהמצלמה פועלת
+    $("box").value = boxScale;
 
     // פנס (Torch) — נתמך רק במצלמה האחורית ברוב המכשירים
     if (caps.torch) {
@@ -364,6 +372,20 @@
     catch (err) {}
   });
 
+  // שינוי גודל אזור הסריקה מצריך הפעלה מחדש של הזרם (qrbox נקבע באתחול)
+  async function restartScan() {
+    if (!running) return;
+    try { await html5.stop(); } catch (e) {}
+    running = false;
+    await start();
+  }
+  let boxRestartTimer = null;
+  $("box").addEventListener("input", (e) => {
+    boxScale = parseFloat(e.target.value);
+    LS.setItem("cam_box", boxScale);
+    if (running) { clearTimeout(boxRestartTimer); boxRestartTimer = setTimeout(restartScan, 350); }
+  });
+
   // ---- פריסטים של זום/פוקוס/פנס לברקודים קשים ----
   let presets = JSON.parse(LS.getItem("cam_presets") || "[]");
   let activePresetId = LS.getItem("cam_active_preset") || null;
@@ -374,6 +396,11 @@
   }
 
   async function applyPreset(p) {
+    // גודל אזור סריקה — משנה את qrbox ולכן דורש הפעלה מחדש; אחריה נחיל את השאר
+    if (p.box != null && p.box !== boxScale) {
+      boxScale = p.box; LS.setItem("cam_box", boxScale); $("box").value = boxScale;
+      if (running) { await restartScan(); return; }
+    }
     if (p.zoom != null) {
       try { await html5.applyVideoConstraints({ advanced: [{ zoom: p.zoom }] }); } catch (e) {}
       $("zoom").value = p.zoom;
@@ -410,6 +437,7 @@
       if (p.zoom != null)  meta.push("זום " + (+p.zoom).toFixed(1));
       if (p.focus != null) meta.push("פוקוס");
       if (p.torch)         meta.push("פנס");
+      if (p.box != null)   meta.push("אזור " + Math.round(p.box * 100) + "%");
       const info = document.createElement("span");
       info.innerHTML = `<span class="pname">${p.name}</span>` +
                        (meta.length ? ` <span class="pmeta">${meta.join(" · ")}</span>` : "");
@@ -450,7 +478,7 @@
     if (!running) { setStatus("⚠️ הפעל סריקה וכוונן זום/פוקוס לפני שמירה", "err"); return; }
     const name = (prompt("שם לפריסט (למשל: מדף עליון / ברקוד קטן):") || "").trim();
     if (!name) return;
-    const p = { id: "p" + Date.now(), name };
+    const p = { id: "p" + Date.now(), name, box: boxScale };
     let s = {};
     try { s = html5.getRunningTrackSettings() || {}; } catch (e) {}
     if ($("zoomWrap").style.display !== "none")  p.zoom = parseFloat($("zoom").value);
