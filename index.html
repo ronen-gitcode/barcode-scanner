@@ -69,6 +69,8 @@
     <div id="reader"></div>
     <button id="startBtn">▶️ התחל סריקה</button>
     <button id="stopBtn" class="secondary" style="display:none">⏹️ עצור</button>
+    <button id="fileBtn" class="secondary">🖼️ סרוק מצילום / גלריה</button>
+    <input id="fileInput" type="file" accept="image/*" capture="environment" style="display:none" />
     <div id="camControls" style="display:none; margin-top:8px;">
       <button id="torchBtn" class="secondary" style="display:none">🔦 פנס</button>
       <div id="zoomWrap" style="display:none; margin-top:8px;">
@@ -330,6 +332,23 @@
   }
   $("startBtn").addEventListener("click", start);
   $("stopBtn").addEventListener("click", stop);
+
+  // ---- סריקה מתמונה (מצלמה רגילה עם פוקוס מאקרו / גלריה) ----
+  $("fileBtn").addEventListener("click", () => $("fileInput").click());
+  $("fileInput").addEventListener("change", async (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = "";                 // כדי שאפשר יהיה לבחור שוב אותו קובץ
+    if (!file) return;
+    if (running) { await stop(); }
+    setStatus("🔍 מפענח תמונה...", "");
+    try {
+      const decoded = await html5.scanFile(file, false);
+      onScan(decoded);
+    } catch (err) {
+      setStatus("⚠️ לא זוהה ברקוד בתמונה. צלם חד יותר, מקרוב ובתאורה טובה.", "err");
+      beep(false);
+    }
+  });
 
   refreshCounts();
   if (queue.length) { setStatus("יש "+queue.length+" סריקות בתור. לחץ 'נסה לשלוח שוב'.", "dup"); }
