@@ -40,6 +40,15 @@
   details { margin-top:8px; } summary { color:var(--muted); font-size:.85rem; }
   .small { font-size:.78rem; color:var(--muted); line-height:1.5; }
   a { color:var(--accent); }
+  ul.presets { list-style:none; padding:0; margin:8px 0 0; }
+  ul.presets li { display:flex; align-items:center; gap:8px; padding:8px 10px;
+                  border-radius:10px; background:#0b1220; margin-bottom:6px; flex-wrap:wrap; }
+  ul.presets li.active { outline:2px solid var(--accent); }
+  ul.presets .pname { font-weight:600; }
+  ul.presets .pmeta { font-size:.72rem; color:var(--muted); }
+  ul.presets .pbtns { display:flex; gap:6px; margin-inline-start:auto; }
+  ul.presets .pbtns button { width:auto; padding:6px 10px; margin:0; font-size:.8rem; background:#334155; }
+  ul.presets .pbtns button.on { background:var(--accent); }
 </style>
 </head>
 <body>
@@ -84,6 +93,16 @@
       </div>
     </div>
     <div class="status" id="status">מוכן.</div>
+  </div>
+
+  <!-- פריסטים של זום/פוקוס -->
+  <div class="card">
+    <label>פריסטים לברקודים קשים (זום + פוקוס שמורים)</label>
+    <button id="savePresetBtn" class="secondary">➕ שמור את ההגדרה הנוכחית כפריסט</button>
+    <div id="presetsEmpty" class="small" style="margin-top:6px">
+      אין פריסטים עדיין. הפעל סריקה, כוונן זום/פוקוס עד שהברקוד הקשה נקרא, ואז לחץ "שמור".
+    </div>
+    <ul id="presetList" class="presets"></ul>
   </div>
 
   <!-- מונים + יומן -->
@@ -261,11 +280,13 @@
   let running = false;
   let lastCode = null, lastTime = 0;
   let torchOn = false;
+  let camCaps = {};                 // יכולות המצלמה הפעילה (זום/פוקוס/פנס)
 
   // ---- בקרות מצלמה (פנס + זום) לברקודים קטנים/מטושטשים ----
   function setupCamControls() {
     let caps = {};
     try { caps = html5.getRunningTrackCapabilities() || {}; } catch (e) {}
+    camCaps = caps;
     let anything = false;
 
     // פנס (Torch) — נתמך רק במצלמה האחורית ברוב המכשירים
@@ -306,6 +327,12 @@
     }
 
     $("camControls").style.display = anything ? "block" : "none";
+
+    // אם יש פריסט פעיל — החל אותו אוטומטית עם פתיחת המצלמה
+    if (activePresetId) {
+      const p = presets.find(x => x.id === activePresetId);
+      if (p) applyPreset(p);
+    }
   }
 
   $("torchBtn").addEventListener("click", async () => {
@@ -336,6 +363,120 @@
     try { await html5.applyVideoConstraints({ advanced: [{ focusMode: "continuous" }] }); }
     catch (err) {}
   });
+
+  // ---- פריסטים של זום/פוקוס/פנס לברקודים קשים ----
+  let presets = JSON.parse(LS.getItem("cam_presets") || "[]");
+  let activePresetId = LS.getItem("cam_active_preset") || null;
+  function savePresets() { LS.setItem("cam_presets", JSON.stringify(presets)); }
+  function saveActive() {
+    if (activePresetId) LS.setItem("cam_active_preset", activePresetId);
+    else LS.removeItem("cam_active_preset");
+  }
+
+  async function applyPreset(p) {
+    if (p.zoom != null) {
+      try { await html5.applyVideoConstraints({ advanced: [{ zoom: p.zoom }] }); } catch (e) {}
+      $("zoom").value = p.zoom;
+    }
+    if (p.focus != null) {
+      try { await html5.applyVideoConstraints({ advanced: [{ focusMode: "manual", focusDistance: p.focus }] }); } catch (e) {}
+      $("focus").value = p.focus;
+    }
+    if (p.torch != null) {
+      try {
+        await html5.applyVideoConstraints({ advanced: [{ torch: p.torch }] });
+        torchOn = p.torch;
+        $("torchBtn").textContent = torchOn ? "🔦 כבה פנס" : "🔦 פנס";
+      } catch (e) {}
+    }
+  }
+
+  async function resetCam() {
+    try { await html5.applyVideoConstraints({ advanced: [{ focusMode: "continuous" }] }); } catch (e) {}
+    if (camCaps.zoom && typeof camCaps.zoom === "object") {
+      try { await html5.applyVideoConstraints({ advanced: [{ zoom: camCaps.zoom.min }] }); } catch (e) {}
+      $("zoom").value = camCaps.zoom.min;
+    }
+  }
+
+  function renderPresets() {
+    const ul = $("presetList");
+    ul.innerHTML = "";
+    $("presetsEmpty").style.display = presets.length ? "none" : "block";
+    presets.forEach(p => {
+      const li = document.createElement("li");
+      if (p.id === activePresetId) li.className = "active";
+      const meta = [];
+      if (p.zoom != null)  meta.push("זום " + (+p.zoom).toFixed(1));
+      if (p.focus != null) meta.push("פוקוס");
+      if (p.torch)         meta.push("פנס");
+      const info = document.createElement("span");
+      info.innerHTML = `<span class="pname">${p.name}</span>` +
+                       (meta.length ? ` <span class="pmeta">${meta.join(" · ")}</span>` : "");
+      const btns = document.createElement("span");
+      btns.className = "pbtns";
+      const on = p.id === activePresetId;
+      const tgl = document.createElement("button");
+      tgl.textContent = on ? "בטל" : "החל";
+      if (on) tgl.className = "on";
+      tgl.onclick = () => togglePreset(p.id);
+      const ed = document.createElement("button");
+      ed.textContent = "✏️";
+      ed.onclick = () => editPreset(p.id);
+      const del = document.createElement("button");
+      del.textContent = "🗑️";
+      del.onclick = () => deletePreset(p.id);
+      btns.append(tgl, ed, del);
+      li.append(info, btns);
+      ul.append(li);
+    });
+  }
+
+  async function togglePreset(id) {
+    if (activePresetId === id) {                 // כיבוי הפריסט
+      activePresetId = null; saveActive(); renderPresets();
+      if (running) await resetCam();
+      setStatus("↩️ פריסט כובה — חזרה לפוקוס אוטומטי", "");
+      return;
+    }
+    activePresetId = id; saveActive(); renderPresets();
+    const p = presets.find(x => x.id === id);
+    if (!p) return;
+    if (running) { await applyPreset(p); setStatus("🎯 פריסט '" + p.name + "' פעיל", "ok"); }
+    else { setStatus("הפעל סריקה כדי להחיל את הפריסט '" + p.name + "'", "dup"); }
+  }
+
+  $("savePresetBtn").addEventListener("click", () => {
+    if (!running) { setStatus("⚠️ הפעל סריקה וכוונן זום/פוקוס לפני שמירה", "err"); return; }
+    const name = (prompt("שם לפריסט (למשל: מדף עליון / ברקוד קטן):") || "").trim();
+    if (!name) return;
+    const p = { id: "p" + Date.now(), name };
+    let s = {};
+    try { s = html5.getRunningTrackSettings() || {}; } catch (e) {}
+    if ($("zoomWrap").style.display !== "none")  p.zoom = parseFloat($("zoom").value);
+    else if (s.zoom != null)                     p.zoom = s.zoom;
+    if ($("focusWrap").style.display !== "none") p.focus = parseFloat($("focus").value);
+    else if (s.focusDistance != null)            p.focus = s.focusDistance;
+    if (torchOn)                                 p.torch = true;
+    presets.push(p); savePresets(); renderPresets();
+    setStatus("💾 נשמר פריסט '" + name + "'", "ok");
+  });
+
+  function editPreset(id) {
+    const p = presets.find(x => x.id === id);
+    if (!p) return;
+    const name = (prompt("שם חדש לפריסט:", p.name) || "").trim();
+    if (!name) return;
+    p.name = name; savePresets(); renderPresets();
+  }
+
+  function deletePreset(id) {
+    const p = presets.find(x => x.id === id);
+    if (!confirm("למחוק את הפריסט '" + (p ? p.name : "") + "'?")) return;
+    presets = presets.filter(x => x.id !== id);
+    if (activePresetId === id) { activePresetId = null; saveActive(); }
+    savePresets(); renderPresets();
+  }
 
   function onScan(decodedText) {
     const code = decodedText.trim();
@@ -396,6 +537,7 @@
   });
 
   refreshCounts();
+  renderPresets();
   if (queue.length) { setStatus("יש "+queue.length+" סריקות בתור. לחץ 'נסה לשלוח שוב'.", "dup"); }
 })();
 </script>
