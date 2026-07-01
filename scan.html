@@ -49,7 +49,7 @@
 </style>
 </head>
 <body>
-  <h1>📦 סורק ברקודים (מקומי)</h1>
+  <h1>📦 סורק ברקודים (מקומי) <span style="font-size:.7rem;color:var(--muted)">v5</span></h1>
 
   <div class="card">
     <div id="reader"></div>
@@ -187,6 +187,7 @@
   }
   async function start(){
     if(busy || running) return; busy=true;
+    try{ if(h5.getState && h5.getState()!==1){ await h5.stop(); } }catch(_){}  // ודא מצב נקי לפני פתיחה
     // אם יש פריסט פעיל עם אזור שמור — קבע אותו לפני האתחול כדי להימנע מאתחול כפול
     if(activePresetId){ const ap=presets.find(x=>x.id===activePresetId); if(ap && ap.box!=null) boxScale=ap.box; }
     setStatus("פותח את הסורק... (אשר הרשאה אם תתבקש)","");
@@ -196,11 +197,15 @@
       setStatus("📷 כוון לברקוד...","");
       setupCamControls();
     }catch(e){
-      const nm=(e&&e.name)?e.name+": ":""; let tip="";
-      if(/NotAllowed|Permission/i.test(nm)) tip=" — צריך לאשר גישה למצלמה.";
-      else if(/NotReadable|TrackStart/i.test(nm)) tip=" — המצלמה תפוסה ע\"י אפליקציה אחרת.";
-      else if(location.protocol!=="https:") tip=" — צריך להיכנס דרך https.";
-      setStatus("⚠️ "+nm+(e.message||e)+tip,"err");
+      const nm=(e&&e.name)?e.name+": ":""; const msg=(e&&e.message)?e.message:(""+e); let tip="";
+      if(/transition/i.test(msg)){ try{ await h5.stop(); }catch(_){}
+        setStatus("⚠️ תקלת אתחול — לחץ 'התחל סריקה' שוב.","err"); }
+      else {
+        if(/NotAllowed|Permission/i.test(nm)) tip=" — צריך לאשר גישה למצלמה.";
+        else if(/NotReadable|TrackStart/i.test(nm)) tip=" — המצלמה תפוסה ע\"י אפליקציה אחרת.";
+        else if(location.protocol!=="https:") tip=" — צריך להיכנס דרך https.";
+        setStatus("⚠️ "+nm+msg+tip,"err");
+      }
     } finally { busy=false; }
   }
   async function stop(){
