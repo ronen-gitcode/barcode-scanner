@@ -176,11 +176,14 @@
     {width:{ideal:1920},height:{ideal:1080},advanced:[{focusMode:"continuous"}]}, extra); }
   async function startWith(src){ return h5.start(src,camConfig,onScan,()=>{}); }
   async function startCore(){
-    try{ await startWith(baseConstraints({facingMode:"environment"})); }
-    catch(e1){ const cams=await Html5Qrcode.getCameras();
-      if(!cams||!cams.length) throw new Error("לא נמצאה מצלמה במכשיר");
-      const rear=cams.find(c=>/back|rear|environment|אחור/i.test(c.label||""))||cams[cams.length-1];
-      await startWith(baseConstraints({deviceId:{exact:rear.id}})); }
+    try{ await startWith(baseConstraints({facingMode:{ideal:"environment"}})); return; }
+    catch(e1){ try{ await h5.stop(); }catch(_){} }   // אפס את מצב הספרייה לפני ניסיון גיבוי
+    const cams=await Html5Qrcode.getCameras();
+    if(!cams||!cams.length) throw new Error("לא נמצאה מצלמה במכשיר");
+    const rear=cams.find(c=>/back|rear|environment|אחור/i.test(c.label||""))||cams[cams.length-1];
+    try{ await startWith(baseConstraints({deviceId:{exact:rear.id}})); return; }
+    catch(e2){ try{ await h5.stop(); }catch(_){} }   // אפס שוב, ונסה בלי אילוצים מתקדמים
+    await startWith(rear.id);
   }
   async function start(){
     if(busy || running) return; busy=true;
